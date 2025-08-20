@@ -1,10 +1,16 @@
 import ballerina/http;
 import ballerina/time;
+import ballerina/sql;
+import ballerinax/mysql;
 
 type User record {|
     readonly int id;
     string name;
+
+    @sql:Column {name: "birth_date"}
     time:Date birthDate;
+
+    @sql:Column {name: "mobile_number"}
     string mobileNumber;
 |};
 
@@ -40,15 +46,31 @@ table<User> key(id) users = table [
     }, mobileNumber: "0987654321"}
 ];
 
+
+mysql:Client socialMediaDb = check new ("localhost", "root", "password", "social_media", 3306);
+
 service /social\-media on new http:Listener(port = 9090) {
     resource function get users() returns User[]|error {
-        return users.toArray();
+
+        stream<User,sql:Error?> query = socialMediaDb->query(`select * from users`);
+        return  from var user in query select user;
+        // return users.toArray();
     }
 
     resource function get users/[int id]() returns User|UserNotFound|error {
         
-        User? user = users[id];
-        if user is () {
+        // User? user = users[id];
+        // if user is () {
+        //     UserNotFound userNotFound = {
+        //         body: {message: string `id: ${id}`, details: string `users/${id}`, timeStamp: time:utcNow() }  
+        //     };
+
+        //     return userNotFound;
+        // }
+
+        User|sql:Error user = socialMediaDb->queryRow(`select * from users where id = ${id}`);
+        if user is sql:NoRowsError {
+
             UserNotFound userNotFound = {
                 body: {message: string `id: ${id}`, details: string `users/${id}`, timeStamp: time:utcNow() }  
             };
@@ -61,7 +83,13 @@ service /social\-media on new http:Listener(port = 9090) {
 
     resource function post users(NewUser newUser) returns http:Created|error {
 
-        users.add({id: users.length()+1, ...newUser});
+        // users.add({id: users.length()+1, ...newUser});
+
+        _ = check socialMediaDb->execute(`
+            insert into users (name, birthDate, mobileNumber) 
+            values (${newUser.name}, ${newUser.birthDate}, ${newUser.mobileNumber})
+        `);
+
         return http:CREATED;
     }
 }
